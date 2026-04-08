@@ -27,6 +27,15 @@ function extractAudio(videoPath: string, audioPath: string): Promise<void> {
   });
 }
 
+function getAudioDuration(filePath: string): Promise<number> {
+  return new Promise((resolve) => {
+    ffmpeg.ffprobe(filePath, (err, data) => {
+      if (!err && data?.format?.duration) resolve(data.format.duration);
+      else resolve(0);
+    });
+  });
+}
+
 /** Spawn Python → handles entire transcription pipeline (Demucs + WhisperX/Whisper + clean) */
 function runTranscriptPipeline(
   audioPath: string,
@@ -35,6 +44,7 @@ function runTranscriptPipeline(
   modelSize: string,
   useDemucs: boolean,
   useWhisperX: boolean,
+  audioDuration: number,
   progressCallback: (pct: number) => void
 ): Promise<{ segments: Array<{ start: number; end: number; text: string }>; detectedLanguage: string }> {
   return new Promise((resolve, reject) => {
@@ -69,6 +79,20 @@ function runTranscriptPipeline(
 
     proc.stderr.on("data", (d: string) => {
       process.stderr.write(d);
+      
+      if (audioDuration > 0) {
+        // Parse Whisper timecode: [00:00.000 --> 00:05.100]
+        const tMatch = d.match(/-->\s*(?:(\d+):)?(\d+):(\d+)\.\d+\]/);
+        if (tMatch) {
+          const hrs = tMatch[1] ? parseInt(tMatch[1], 10) : 0;
+          const mins = parseInt(tMatch[2], 10);
+          const secs = parseInt(tMatch[3], 10);
+          const currentSecs = hrs * 3600 + mins * 60 + secs;
+          const pct = Math.min(100, Math.round((currentSecs / audioDuration) * 100));
+          progressCallback(pct);
+        }
+      }
+
       // Parse progress hints from Python stderr: "[PROGRESS] 45"
       const m = d.match(/\[PROGRESS\]\s*(\d+)/);
       if (m) progressCallback(parseInt(m[1], 10));
@@ -197,6 +221,8 @@ export function startSubtitleWorker(): Worker {
         await updateDB({ progress: 15 });
         await job.updateProgress(15);
 
+        const audioDuration = await getAudioDuration(videoPath);
+
         const { segments, detectedLanguage } = await runTranscriptPipeline(
           audioPath,
           sourceLanguage,
@@ -204,6 +230,7 @@ export function startSubtitleWorker(): Worker {
           whisperModel || config.whisperModel,
           config.demucsEnabled,
           config.whisperxEnabled,
+          audioDuration,
           async (pct) => {
             // Python reports 0-100 within the transcription step → map to 15-85 overall
             const mapped = Math.round(15 + pct * 0.70);
