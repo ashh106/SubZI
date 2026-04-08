@@ -1,0 +1,34 @@
+Final Tech Stack (Approved)
+Backend:
+Node.js + TypeScript
+Express (or Fastify)
+Queue:
+BullMQ
+Redis
+Processing:
+FFmpeg
+OpenAI Whisper
+Storage:
+Amazon S3
+Database:
+MongoDB (simple) OR PostgreSQL (better design)
+Frontend:
+React (keep minimal)
+
+
+Client → Upload API → S3
+                ↓
+            Create Job
+                ↓
+            BullMQ Queue
+                ↓
+            Worker picks job
+                ↓
+     FFmpeg → Whisper → Generate subtitles
+                ↓
+           Store result (DB)
+                ↓
+        Client polls / WebSocket
+
+
+        
