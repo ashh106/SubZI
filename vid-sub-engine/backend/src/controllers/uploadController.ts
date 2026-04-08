@@ -19,6 +19,7 @@ export const uploadVideo = async (req: Request, res: Response): Promise<void> =>
     const fileId        = path.basename(req.file.filename, path.extname(req.file.filename));
     const sourceLanguage = (req.body.sourceLanguage as string) || "auto";
     const targetLanguage = (req.body.targetLanguage as string) || "en";
+    const whisperModel   = (req.body.whisperModel as string) || config.whisperModel;
 
     await SubtitleJob.create({
       fileId,
@@ -31,7 +32,7 @@ export const uploadVideo = async (req: Request, res: Response): Promise<void> =>
       targetLanguage,
     });
 
-    await enqueueSubtitleJob({ fileId, filename: req.file.filename, originalName: req.file.originalname, sourceLanguage, targetLanguage });
+    await enqueueSubtitleJob({ fileId, filename: req.file.filename, originalName: req.file.originalname, sourceLanguage, targetLanguage, whisperModel });
 
     console.log(`✅ Uploaded & queued: ${req.file.filename} (${(req.file.size / 1024 / 1024).toFixed(2)} MB)`);
 
@@ -66,6 +67,8 @@ export const getJobStatus = async (req: Request, res: Response): Promise<void> =
     res.json({
       fileId:           job.fileId,
       status:           job.status,
+      progress:         job.progress,
+      burnStatus:       job.burnStatus,
       originalName:     job.originalName,
       sourceLanguage:   job.sourceLanguage,
       detectedLanguage: job.detectedLanguage,
@@ -171,20 +174,30 @@ export const burnSubtitles = async (req: Request, res: Response): Promise<void> 
     const fileId = req.params["fileId"] as string;
     const job    = await SubtitleJob.findOne({ fileId });
 
+    const srtData = req.body.srtData as string | undefined;
+
     if (!job || job.status !== "completed") {
       res.status(400).json({ error: "Subtitles must be completed first" }); return;
     }
 
-    if (!job.srtPath || !fs.existsSync(job.srtPath)) {
-      res.status(404).json({ error: "SRT file not found" }); return;
+    // Overwrite the SRT with frontend timeline edits if provided
+    if (srtData && job.srtPath) {
+       fs.writeFileSync(job.srtPath, srtData, "utf-8");
+    } else if (!job.srtPath || !fs.existsSync(job.srtPath)) {
+      res.status(404).json({ error: "SRT file not found and no overrides provided." }); return;
     }
 
-    // If already burned, return existing
-    if (job.burnedVideoPath && fs.existsSync(job.burnedVideoPath)) {
+    // If already burned and NO overrides were requested, return existing cache
+    if (!srtData && job.burnedVideoPath && fs.existsSync(job.burnedVideoPath)) {
       res.setHeader("Content-Disposition", `attachment; filename="${path.basename(job.burnedVideoPath)}"`);
       res.setHeader("Content-Type", "video/mp4");
       fs.createReadStream(job.burnedVideoPath).pipe(res);
       return;
+    }
+
+    // Since we are creating a new mapped video, remove the cached video if it exists
+    if (srtData && job.burnedVideoPath && fs.existsSync(job.burnedVideoPath)) {
+       fs.unlinkSync(job.burnedVideoPath);
     }
 
     const videoPath  = path.join(config.uploadsDir, job.filename);
@@ -192,24 +205,30 @@ export const burnSubtitles = async (req: Request, res: Response): Promise<void> 
     // Escape Windows path for FFmpeg subtitles filter
     const srtEscaped = job.srtPath.replace(/\\/g, "/").replace(/:/g, "\\:");
 
+    await SubtitleJob.findOneAndUpdate({ fileId }, { burnStatus: "processing", burnProgress: 5, burnedVideoPath: outputPath });
+
     res.json({
       message: "Burning subtitles started. This may take a few minutes.",
       checkUrl: `/api/upload/${fileId}/burned`,
     });
 
+    // Format custom FFmpeg style for high-quality defaults
+    const styleStr = "FontName=Arial,FontSize=22,PrimaryColour=&H00FFFFFF,OutlineColour=&H00000000,BorderStyle=1,Outline=2,Shadow=1,Alignment=2,MarginV=25";
+
     // Run FFmpeg in background (don't block the response)
     const ffmpegProc = spawn("ffmpeg", [
       "-i", videoPath,
-      "-vf", `subtitles='${srtEscaped}'`,
+      "-vf", `subtitles='${srtEscaped}':force_style='${styleStr}'`,
       "-c:a", "copy",
       "-y", outputPath,
     ]);
 
     ffmpegProc.on("close", async (code) => {
       if (code === 0) {
-        await SubtitleJob.findOneAndUpdate({ fileId }, { burnedVideoPath: outputPath });
+        await SubtitleJob.findOneAndUpdate({ fileId }, { burnStatus: "completed", burnProgress: 100, burnedVideoPath: outputPath });
         console.log(`[Burn] Done: ${outputPath}`);
       } else {
+        await SubtitleJob.findOneAndUpdate({ fileId }, { burnStatus: "failed" });
         console.error(`[Burn] FFmpeg failed with code ${code}`);
       }
     });

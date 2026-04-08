@@ -1,6 +1,7 @@
 import mongoose, { Schema, Document } from "mongoose";
 
-export type JobStatus = "pending" | "processing" | "completed" | "failed";
+export type JobStatus = "pending" | "queued" | "processing" | "completed" | "failed";
+export type BurnStatus = "none" | "pending" | "processing" | "completed" | "failed";
 
 export interface ISubtitleJob extends Document {
   fileId: string;           // UUID (from filename without ext)
@@ -9,12 +10,32 @@ export interface ISubtitleJob extends Document {
   mimetype: string;
   sizeBytes: number;
   status: JobStatus;
+  progress: number;         // 0–100 overall job progress
+
+  // Language
   sourceLanguage: string;   // "auto" or ISO code (what user sent)
   detectedLanguage?: string;// what Whisper auto-detected
   targetLanguage: string;   // output language ("en", "hi", "ur"...)
+
+  // Caption style (for burned video)
+  captionStyle?: {
+    fontName: string;
+    fontSize: number;
+    color: string;          // e.g. "#FFFFFF"
+    position: string;       // "bottom" | "top" | "left" | "right"
+  };
+
+  // Output files
   srtPath?: string;
   vttPath?: string;
-  burnedVideoPath?: string; // path to video with burned-in subtitles
+  textPath?: string;
+  burnedVideoPath?: string;
+
+  // Burn status (separate from transcription status)
+  burnStatus: BurnStatus;
+  burnProgress: number;     // 0–100
+
+  // Timestamps
   errorMessage?: string;
   uploadedAt: Date;
   startedAt?: Date;
@@ -28,14 +49,29 @@ const SubtitleJobSchema = new Schema<ISubtitleJob>(
     filename:     { type: String, required: true },
     mimetype:     { type: String, required: true },
     sizeBytes:    { type: Number, required: true },
-    status:           { type: String, enum: ["pending","processing","completed","failed"], default: "pending" },
+    status:       { type: String, enum: ["pending","queued","processing","completed","failed"], default: "pending" },
+    progress:     { type: Number, default: 0 },
+
     sourceLanguage:   { type: String, default: "auto" },
     detectedLanguage: { type: String },
     targetLanguage:   { type: String, default: "en" },
-    srtPath:          { type: String },
-    vttPath:          { type: String },
-    burnedVideoPath:  { type: String },
-    errorMessage:     { type: String },
+
+    captionStyle: {
+      fontName:  { type: String, default: "Arial" },
+      fontSize:  { type: Number, default: 24 },
+      color:     { type: String, default: "#FFFFFF" },
+      position:  { type: String, default: "bottom" },
+    },
+
+    srtPath:         { type: String },
+    vttPath:         { type: String },
+    textPath:        { type: String },
+    burnedVideoPath: { type: String },
+
+    burnStatus:   { type: String, enum: ["none","pending","processing","completed","failed"], default: "none" },
+    burnProgress: { type: Number, default: 0 },
+
+    errorMessage: { type: String },
     uploadedAt:   { type: Date, default: Date.now },
     startedAt:    { type: Date },
     completedAt:  { type: Date },
