@@ -1,6 +1,6 @@
 import axios from "axios";
-import { ArrowRight, CheckCircle2, LoaderCircle, Sparkles, Upload } from "lucide-react";
-import { useState } from "react";
+import { ArrowRight, CheckCircle2, LoaderCircle, Sparkles, Upload, Wifi, WifiOff } from "lucide-react";
+import { useState, useEffect } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { toast } from "sonner";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -75,6 +75,20 @@ export default function Dashboard() {
   } = useSubtitleStudio();
 
   const [stagedFile, setStagedFile] = useState<File | null>(null);
+  const [backendHealth, setBackendHealth] = useState<"checking" | "online" | "offline">("checking");
+
+  // Check backend connectivity on mount
+  useEffect(() => {
+    const check = async () => {
+      try {
+        await axios.get(`${API_URL}/health`, { timeout: 15000 });
+        setBackendHealth("online");
+      } catch {
+        setBackendHealth("offline");
+      }
+    };
+    check();
+  }, []);
 
   const handleReset = () => {
     reset();
@@ -230,6 +244,16 @@ export default function Dashboard() {
               <p className="text-base leading-7 text-white/60 sm:text-lg">
                 Drag in footage, watch the processing pipeline update in real time, and jump into a ready-made editing timeline.
               </p>
+              {/* Backend connection status */}
+              <div className={`inline-flex items-center gap-2 rounded-full px-3 py-1.5 text-xs font-medium border ${
+                backendHealth === "online" ? "bg-emerald-500/10 border-emerald-500/30 text-emerald-400" :
+                backendHealth === "offline" ? "bg-red-500/10 border-red-500/30 text-red-400" :
+                "bg-white/5 border-white/10 text-white/50"
+              }`}>
+                {backendHealth === "online" && <><Wifi className="h-3 w-3" /> Backend connected</>}
+                {backendHealth === "offline" && <><WifiOff className="h-3 w-3" /> Backend offline — check Render env vars</>}
+                {backendHealth === "checking" && <><LoaderCircle className="h-3 w-3 animate-spin" /> Connecting to server...</>}
+              </div>
             </div>
           </div>
 
