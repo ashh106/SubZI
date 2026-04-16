@@ -4,6 +4,7 @@ import { useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { toast } from "sonner";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { API_URL } from "@shared/api";
 
 
 import { SubtitleCanvas } from "@/components/subtitle-canvas";
@@ -119,7 +120,7 @@ export default function Dashboard() {
       formData.append("whisperModel", whisperModel);
 
       // 1. Upload Video
-      const response = await axios.post<any>("/api/upload", formData, {
+      const response = await axios.post<any>(`${API_URL}/api/upload`, formData, {
         headers: { "Content-Type": "multipart/form-data" },
         onUploadProgress: (progressEvent) => {
           if (progressEvent.total) {
@@ -137,7 +138,7 @@ export default function Dashboard() {
       await new Promise<void>((resolve, reject) => {
         const processingTimer = window.setInterval(async () => {
           try {
-            const statusRes = await axios.get<any>(`/api/upload/${fileId}/status`);
+            const statusRes = await axios.get<any>(`${API_URL}/api/upload/${fileId}/status`);
             const { status: jobStatus, progress, errorMessage } = statusRes.data;
 
             if (jobStatus === "processing") {
@@ -159,10 +160,10 @@ export default function Dashboard() {
       });
 
       // 3. Status completed, fetch actual SRT subtitles
-      const srtRes = await axios.get(`/api/upload/${fileId}/subtitles.srt`);
+      const srtRes = await axios.get(`${API_URL}/api/upload/${fileId}/subtitles.srt`);
       const parsedSubtitles = parseSrt(srtRes.data);
       
-      const statusResFinal = await axios.get<any>(`/api/upload/${fileId}/status`);
+      const statusResFinal = await axios.get<any>(`${API_URL}/api/upload/${fileId}/status`);
       const keywords = statusResFinal.data.keywords || [];
 
       if (parsedSubtitles.length > 0) {

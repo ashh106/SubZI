@@ -6,6 +6,7 @@ import { SubtitleCanvas } from "@/components/subtitle-canvas";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useSubtitleStudio } from "@/hooks/use-subtitle-studio";
 import { formatTimestamp } from "@/lib/studio-data";
+import { API_URL } from "@shared/api";
 
 async function downloadBlobWithPicker(blob: Blob, fileName: string, fileDescription: string, mimeType: string, extension: string) {
   try {
@@ -118,7 +119,7 @@ export default function Export() {
     if (selectedFormat === "mp4") {
       setIsBurning(true);
       try {
-         await fetch(`/api/upload/${uploadedFile}/burn`, {
+         await fetch(`${API_URL}/api/upload/${uploadedFile}/burn`, {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({ srtData: editedSrtData, style, exportSettings })
@@ -126,11 +127,11 @@ export default function Export() {
          
          const checkStatus = async () => {
              try {
-                 const res = await fetch(`/api/upload/${uploadedFile}/status`);
+                 const res = await fetch(`${API_URL}/api/upload/${uploadedFile}/status`);
                  const data = await res.json();
                  if (data.burnStatus === "completed") {
                      // Fetch the actual video file as blob
-                     const videoRes = await fetch(`/api/upload/${uploadedFile}/burned`);
+                     const videoRes = await fetch(`${API_URL}/api/upload/${uploadedFile}/burned`);
                      const videoBlob = await videoRes.blob();
                      if (action === "share") {
                         await handleShare(videoBlob, "-subbed.mp4");
