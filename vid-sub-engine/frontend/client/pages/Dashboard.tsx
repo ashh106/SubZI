@@ -49,9 +49,11 @@ function sleep(duration: number) {
 export default function Dashboard() {
   const navigate = useNavigate();
   const [busy, setBusy] = useState(false);
+  const [serverStatus, setServerStatus] = useState<"idle" | "waking" | "ready">("idle");
   const [sourceLanguage, setSourceLanguage] = useState("auto");
   const [targetLanguage, setTargetLanguage] = useState("en");
-  const [whisperModel, setWhisperModel] = useState("medium");
+  // Gemini Flash is the only supported model on cloud deployment
+  const whisperModel = "gemini-flash";
   const {
     activePreset,
     processingProgress,
@@ -104,6 +106,15 @@ export default function Dashboard() {
       return;
     }
 
+    // File size guard — Render free tier has limited memory
+    const MAX_MB = 50;
+    if (stagedFile.size > MAX_MB * 1024 * 1024) {
+      toast.error(`File too large`, {
+        description: `Please use a video under ${MAX_MB}MB. Try trimming it first.`,
+      });
+      return;
+    }
+
     setBusy(true);
     startUpload({
       fileName: stagedFile.name,
@@ -113,21 +124,32 @@ export default function Dashboard() {
     });
 
     try {
+      // Step 0: Wake up the Render server (free tier sleeps after 15 min idle)
+      setServerStatus("waking");
+      toast.info("Waking up server...", { description: "Free server spins down when idle — this takes ~20 seconds." });
+      try {
+        await axios.get(`${API_URL}/health`, { timeout: 60000 });
+      } catch {
+        // If health check itself fails, we still try the upload
+      }
+      setServerStatus("ready");
+
       const formData = new FormData();
       formData.append("video", stagedFile);
       formData.append("sourceLanguage", sourceLanguage);
       formData.append("targetLanguage", targetLanguage);
       formData.append("whisperModel", whisperModel);
 
-      // 1. Upload Video
+      // Step 1: Upload video (90s timeout for large files on free tier)
       const response = await axios.post<any>(`${API_URL}/api/upload`, formData, {
         headers: { "Content-Type": "multipart/form-data" },
+        timeout: 90000,
         onUploadProgress: (progressEvent) => {
           if (progressEvent.total) {
              const percentCompleted = Math.round((progressEvent.loaded * 100) / progressEvent.total);
              setUploadProgress(percentCompleted);
           }
-        }
+        },
       });
 
       const fileId = response.data.fileId;
@@ -242,21 +264,14 @@ export default function Dashboard() {
               </Select>
             </div>
             <div className="space-y-2">
-              <label className="text-sm font-medium text-white/70">Whisper Model</label>
-              <Select value={whisperModel} onValueChange={setWhisperModel}>
-                <SelectTrigger className="w-full bg-white/5 border-white/10 text-white">
-                  <SelectValue placeholder="Medium (Balanced)" />
-                </SelectTrigger>
-                <SelectContent className="bg-slate-900 border-white/10 text-white">
-                  <SelectItem value="gemini-flash">⚡ Gemini Flash (Fastest — API key required)</SelectItem>
-                  <SelectItem value="tiny">Tiny (Fastest local, High Error Rate)</SelectItem>
-                  <SelectItem value="base">Base (Fast local, Good for clear English)</SelectItem>
-                  <SelectItem value="small">Small (Better translation, Moderate speed)</SelectItem>
-                  <SelectItem value="medium">Medium (Standard Balance of Speed/Accuracy)</SelectItem>
-                  <SelectItem value="large-v3">Large-v3 (Slowest, Maximum Accuracy)</SelectItem>
-                </SelectContent>
-              </Select>
-              <p className="text-[11px] text-white/40 mt-1">⚡ Gemini Flash is the fastest (cloud API). Local models need Python/Whisper installed.</p>
+              <label className="text-sm font-medium text-white/70">AI Engine</label>
+              <div className="flex items-center gap-2 rounded-xl border border-white/10 bg-white/5 px-4 py-2.5">
+                <span className="text-base">⚡</span>
+                <div>
+                  <p className="text-sm font-medium text-white">Gemini Flash</p>
+                  <p className="text-[11px] text-white/40">Google AI — fast cloud transcription</p>
+                </div>
+              </div>
             </div>
           </div>
 
@@ -266,7 +281,10 @@ export default function Dashboard() {
              <div className="glass-panel text-center rounded-[2rem] p-8 border border-white/10 flex flex-col items-center justify-center">
                 <CheckCircle2 className="h-10 w-10 text-emerald-400 mb-4" />
                 <h3 className="text-xl text-white font-medium mb-2">{stagedFile.name} loaded</h3>
-                <p className="text-white/60 text-sm max-w-md mx-auto mb-6">Your video is staged. Double check your Source and Target languages above, select your preferred Whisper model, and click below to begin the analysis engine.</p>
+                <p className="text-white/60 text-sm max-w-md mx-auto mb-6">Your video is staged. Confirm your Source and Target languages above, then click below. Gemini Flash AI will transcribe and translate your audio in the cloud.</p>
+                {stagedFile && stagedFile.size > 50 * 1024 * 1024 && (
+                  <p className="text-amber-400 text-xs mb-4">⚠️ File is over 50MB — consider trimming it for faster processing on free tier.</p>
+                )}
                 
                 <div className="flex items-center gap-3">
                   <button
