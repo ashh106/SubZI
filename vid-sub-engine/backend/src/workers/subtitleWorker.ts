@@ -7,6 +7,7 @@ import { config } from "../config/config";
 import { SubtitleJob } from "../utils/subtitleJobModel";
 import { SUBTITLE_QUEUE, SubtitleJobData, CaptionStyleConfig } from "../queue/subtitleQueue";
 import { getRedisConnection } from "../utils/redisConnection";
+import { geminiTranscribe } from "../services/geminiTranscribeService";
 
 // ─── Paths ───────────────────────────────────────────────────────────────────
 const TRANSCRIBE_SCRIPT = path.join(__dirname, "transcribe.py");
@@ -46,7 +47,7 @@ function runTranscriptPipeline(
   useWhisperX: boolean,
   audioDuration: number,
   progressCallback: (pct: number) => void
-): Promise<{ segments: Array<{ start: number; end: number; text: string }>; detectedLanguage: string }> {
+): Promise<{ segments: Array<{ start: number; end: number; text: string }>; detectedLanguage: string; keywords: string[] }> {
   return new Promise((resolve, reject) => {
     console.log(`[Python] transcribe.py | src=${sourceLanguage} tgt=${targetLanguage} model=${modelSize} demucs=${useDemucs} whisperx=${useWhisperX}`);
 
@@ -107,7 +108,7 @@ function runTranscriptPipeline(
         const jsonLine = stdout.trim().split("\n").filter(l => l.startsWith("{")).pop() || stdout.trim();
         const parsed = JSON.parse(jsonLine);
         if (parsed.error) return reject(new Error(parsed.error));
-        resolve({ segments: parsed.segments, detectedLanguage: parsed.detectedLanguage ?? "unknown" });
+        resolve({ segments: parsed.segments, detectedLanguage: parsed.detectedLanguage ?? "unknown", keywords: parsed.keywords ?? [] });
       } catch {
         reject(new Error(`Bad JSON from Python: ${stdout.slice(0, 300)}`));
       }
@@ -216,28 +217,47 @@ export function startSubtitleWorker(): Worker {
         await extractAudio(videoPath, audioPath);
         console.log(`[Worker] [${fileId}] Audio extracted`);
 
-        // ── Step 2: Python pipeline (Demucs → WhisperX/Whisper → clean) ───────
-        console.log(`[Worker] [${fileId}] Step 2: AI transcription pipeline...`);
+        // ── Step 2: Transcription (Gemini OR Python/Whisper) ──────────────────
+        const useGemini = (whisperModel === "gemini-flash") && !!config.geminiApiKey;
+        console.log(`[Worker] [${fileId}] Step 2: Transcription via ${useGemini ? "Gemini API ⚡" : "Python/Whisper"}...`);
         await updateDB({ progress: 15 });
         await job.updateProgress(15);
 
-        const audioDuration = await getAudioDuration(videoPath);
+        let segments: Array<{ start: number; end: number; text: string }>;
+        let detectedLanguage: string;
+        let keywords: string[];
 
-        const { segments, detectedLanguage } = await runTranscriptPipeline(
-          audioPath,
-          sourceLanguage,
-          targetLanguage,
-          whisperModel || config.whisperModel,
-          config.demucsEnabled,
-          config.whisperxEnabled,
-          audioDuration,
-          async (pct) => {
-            // Python reports 0-100 within the transcription step → map to 15-85 overall
-            const mapped = Math.round(15 + pct * 0.70);
-            await updateDB({ progress: mapped });
-            await job.updateProgress(mapped);
-          }
-        );
+        if (useGemini) {
+          // ── Fast path: Gemini 1.5 Flash ──────────────────────────────────────
+          await updateDB({ progress: 25 });
+          await job.updateProgress(25);
+          const geminiResult = await geminiTranscribe(audioPath, sourceLanguage, targetLanguage);
+          segments = geminiResult.segments;
+          detectedLanguage = geminiResult.detectedLanguage;
+          keywords = geminiResult.keywords;
+          await updateDB({ progress: 80 });
+          await job.updateProgress(80);
+        } else {
+          // ── Slow path: local Python / Whisper ────────────────────────────────
+          const audioDuration = await getAudioDuration(videoPath);
+          const result = await runTranscriptPipeline(
+            audioPath,
+            sourceLanguage,
+            targetLanguage,
+            whisperModel || config.whisperModel,
+            config.demucsEnabled,
+            config.whisperxEnabled,
+            audioDuration,
+            async (pct) => {
+              const mapped = Math.round(15 + pct * 0.70);
+              await updateDB({ progress: mapped });
+              await job.updateProgress(mapped);
+            }
+          );
+          segments = result.segments;
+          detectedLanguage = result.detectedLanguage;
+          keywords = result.keywords;
+        }
 
         console.log(`[Worker] [${fileId}] Transcription done — ${segments.length} segments (lang: ${detectedLanguage})`);
 
@@ -260,6 +280,7 @@ export function startSubtitleWorker(): Worker {
           vttPath,
           textPath,
           detectedLanguage,
+          keywords,
           completedAt: new Date(),
         });
         await job.updateProgress(100);

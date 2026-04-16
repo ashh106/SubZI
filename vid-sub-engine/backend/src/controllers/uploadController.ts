@@ -73,6 +73,7 @@ export const getJobStatus = async (req: Request, res: Response): Promise<void> =
       sourceLanguage:   job.sourceLanguage,
       detectedLanguage: job.detectedLanguage,
       targetLanguage:   job.targetLanguage,
+      keywords:         job.keywords,
       uploadedAt:       job.uploadedAt,
       startedAt:        job.startedAt,
       completedAt:      job.completedAt,
@@ -212,13 +213,45 @@ export const burnSubtitles = async (req: Request, res: Response): Promise<void> 
       checkUrl: `/api/upload/${fileId}/burned`,
     });
 
-    // Format custom FFmpeg style for high-quality defaults
-    const styleStr = "FontName=Arial,FontSize=22,PrimaryColour=&H00FFFFFF,OutlineColour=&H00000000,BorderStyle=1,Outline=2,Shadow=1,Alignment=2,MarginV=25";
+    const styleData = req.body.style || {};
+    const exportSettings = req.body.exportSettings || {};
+
+    const hexToAss = (hex: string): string => {
+      const clean = (hex || "#FFFFFF").replace("#", "");
+      if (clean.length !== 6) return "&H00FFFFFF";
+      const r = clean.slice(0, 2);
+      const g = clean.slice(2, 4);
+      const b = clean.slice(4, 6);
+      return `&H00${b}${g}${r}`.toUpperCase();
+    };
+
+    const alignmentMap: any = { center: 2, left: 1, right: 3 };
+    const alg = alignmentMap[styleData.align] || 2;
+    const fontName = styleData.fontFamily === "sans" ? "Roboto" : styleData.fontFamily === "creative" ? "Impact" : "Arial";
+
+    // Format custom FFmpeg style from frontend style payload
+    const styleStr = `FontName=${fontName},FontSize=${styleData.fontSize || 22},PrimaryColour=${hexToAss(styleData.color)},OutlineColour=&H00000000,BorderStyle=1,Outline=2,Shadow=1,Alignment=${alg},MarginV=25`;
+
+    let vfString = "";
+    if (exportSettings.aspectRatio === "9:16") {
+       vfString = `crop=ih*(9/16):ih,`;
+    } else if (exportSettings.aspectRatio === "16:9") {
+       vfString = `crop=iw:iw*(9/16),`;
+    } else if (exportSettings.aspectRatio === "1:1") {
+       vfString = `crop=in_h:in_h,`; 
+    }
+    vfString += `subtitles='${srtEscaped}':force_style='${styleStr}'`;
+
+    let videoBitrate = "3500k";
+    if (exportSettings.quality === "high") videoBitrate = "8000k";
+    if (exportSettings.quality === "low") videoBitrate = "1000k";
 
     // Run FFmpeg in background (don't block the response)
     const ffmpegProc = spawn("ffmpeg", [
       "-i", videoPath,
-      "-vf", `subtitles='${srtEscaped}':force_style='${styleStr}'`,
+      "-vf", vfString,
+      "-c:v", "libx264",
+      "-b:v", videoBitrate,
       "-c:a", "copy",
       "-y", outputPath,
     ]);

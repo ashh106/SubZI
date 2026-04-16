@@ -34,6 +34,30 @@ WHISPER_LANG_CODES = {
     "mg", "as", "tt", "haw", "ln", "ha", "ba", "jw", "su",
 }
 
+EMOJI_MAP = {
+    "money": "💸", "fast": "🚀", "love": "❤️", "viral": "🔥", "ai": "🤖",
+    "export": "📤", "confidence": "😎", "amazing": "✨", "time": "⏱️",
+    "hack": "🤯", "secret": "🤫", "pro": "💪", "start": "🟢", "stop": "⛔",
+    "paisa": "💸", "pyaar": "❤️", "video": "📹", "crazy": "🤪",
+}
+
+def apply_emojis_and_extract(segments):
+    """Automatically append emojis to viral keywords and extract a master list of keywords."""
+    found_keywords = list()
+    for seg in segments:
+        words = seg["text"].split()
+        new_words = []
+        for w in words:
+            clean_w = w.lower().strip(".,!?\"'")
+            if clean_w in EMOJI_MAP:
+                new_words.append(f"{w} {EMOJI_MAP[clean_w]}")
+                if clean_w not in found_keywords:
+                    found_keywords.append(clean_w)
+            else:
+                new_words.append(w)
+        seg["text"] = " ".join(new_words)
+    return segments, found_keywords
+
 
 def devanagari_to_roman(text):
     """Transliterate Hindi Devanagari → Roman script (Hinglish)."""
@@ -89,10 +113,15 @@ def transcribe(audio_path, source_lang="auto", target_lang="en", model_size="bas
         kwargs["task"] = "translate"
         result = model.transcribe(audio_path, **kwargs)
         detected = result.get("language", "unknown")
+        
+        segments = [{"start": s["start"], "end": s["end"], "text": s["text"]} for s in result["segments"]]
+        segments, keywords = apply_emojis_and_extract(segments)
+
         emit({
-            "segments": [{"start": s["start"], "end": s["end"], "text": s["text"]} for s in result["segments"]],
+            "segments": segments,
             "detectedLanguage": detected,
             "targetLanguage": "hinglish-en",
+            "keywords": keywords
         })
         return
 
@@ -101,13 +130,18 @@ def transcribe(audio_path, source_lang="auto", target_lang="en", model_size="bas
         kwargs["language"] = source_lang if (source_lang != "auto" and source_lang in WHISPER_LANG_CODES) else "hi"
         result = model.transcribe(audio_path, **kwargs)
         detected = result.get("language", "hi")
+        
+        segments = [
+            {"start": s["start"], "end": s["end"], "text": devanagari_to_roman(s["text"])}
+            for s in result["segments"]
+        ]
+        segments, keywords = apply_emojis_and_extract(segments)
+
         emit({
-            "segments": [
-                {"start": s["start"], "end": s["end"], "text": devanagari_to_roman(s["text"])}
-                for s in result["segments"]
-            ],
+            "segments": segments,
             "detectedLanguage": detected,
             "targetLanguage": "hinglish",
+            "keywords": keywords
         })
         return
 
@@ -128,31 +162,43 @@ def transcribe(audio_path, source_lang="auto", target_lang="en", model_size="bas
         tq["task"] = "translate"
         tq["language"] = detected
         result = model.transcribe(audio_path, **tq)
+
+        segments = [{"start": s["start"], "end": s["end"], "text": s["text"]} for s in result["segments"]]
+        segments, keywords = apply_emojis_and_extract(segments)
+
         emit({
-            "segments": [{"start": s["start"], "end": s["end"], "text": s["text"]} for s in result["segments"]],
+            "segments": segments,
             "detectedLanguage": detected,
             "targetLanguage": "en",
+            "keywords": keywords
         })
         return
 
     # Case 2: Target == detected → transcription already in the right language
     if target_lang == detected:
+        segments = [{"start": s["start"], "end": s["end"], "text": s["text"]} for s in result["segments"]]
+        segments, keywords = apply_emojis_and_extract(segments)
+
         emit({
-            "segments": [{"start": s["start"], "end": s["end"], "text": s["text"]} for s in result["segments"]],
+            "segments": segments,
             "detectedLanguage": detected,
             "targetLanguage": target_lang,
+            "keywords": keywords
         })
         return
 
     # Case 3: Non-English target different from source → Google Translate
     segments = [{"start": s["start"], "end": s["end"], "text": s["text"]} for s in result["segments"]]
-    # Restore stdout before translate_segments in case it writes to translators
     sys.stdout = _real_stdout
     segments = translate_segments(segments, detected, target_lang)
+    
+    segments, keywords = apply_emojis_and_extract(segments)
+
     emit({
         "segments": segments,
         "detectedLanguage": detected,
         "targetLanguage": target_lang,
+        "keywords": keywords
     })
 
 
