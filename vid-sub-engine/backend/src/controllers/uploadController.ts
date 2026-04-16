@@ -21,20 +21,34 @@ export const uploadVideo = async (req: Request, res: Response): Promise<void> =>
     const targetLanguage = (req.body.targetLanguage as string) || "en";
     const whisperModel   = (req.body.whisperModel as string) || config.whisperModel;
 
-    await SubtitleJob.create({
-      fileId,
-      originalName:  req.file.originalname,
-      filename:      req.file.filename,
-      mimetype:      req.file.mimetype,
-      sizeBytes:     req.file.size,
-      status:       "pending",
-      sourceLanguage,
-      targetLanguage,
-    });
+    // Step 1: Save to MongoDB
+    try {
+      await SubtitleJob.create({
+        fileId,
+        originalName:  req.file.originalname,
+        filename:      req.file.filename,
+        mimetype:      req.file.mimetype,
+        sizeBytes:     req.file.size,
+        status:       "pending",
+        sourceLanguage,
+        targetLanguage,
+      });
+    } catch (dbErr: any) {
+      console.error("MongoDB save failed:", dbErr.message);
+      res.status(503).json({ error: "Database unavailable. Check MONGO_URI env var.", detail: dbErr.message });
+      return;
+    }
 
-    await enqueueSubtitleJob({ fileId, filename: req.file.filename, originalName: req.file.originalname, sourceLanguage, targetLanguage, whisperModel });
+    // Step 2: Enqueue to Redis/BullMQ
+    try {
+      await enqueueSubtitleJob({ fileId, filename: req.file.filename, originalName: req.file.originalname, sourceLanguage, targetLanguage, whisperModel });
+    } catch (queueErr: any) {
+      console.error("Redis queue failed:", queueErr.message);
+      res.status(503).json({ error: "Queue unavailable. Check REDIS_URL env var.", detail: queueErr.message });
+      return;
+    }
 
-    console.log(`✅ Uploaded & queued: ${req.file.filename} (${(req.file.size / 1024 / 1024).toFixed(2)} MB)`);
+    console.log(`Uploaded & queued: ${req.file.filename} (${(req.file.size / 1024 / 1024).toFixed(2)} MB)`);
 
     res.status(202).json({
       success: true,
@@ -51,9 +65,9 @@ export const uploadVideo = async (req: Request, res: Response): Promise<void> =>
         burnedVideo: `/api/upload/${fileId}/burn`,
       },
     });
-  } catch (error) {
+  } catch (error: any) {
     console.error("Upload error:", error);
-    res.status(500).json({ error: "Upload failed" });
+    res.status(500).json({ error: "Upload failed", detail: error.message });
   }
 };
 

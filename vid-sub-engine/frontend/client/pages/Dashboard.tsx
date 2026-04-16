@@ -178,12 +178,13 @@ export default function Dashboard() {
       });
       // Clear staged file after successful processing
       setStagedFile(null);
-    } catch (error) {
+    } catch (error: any) {
       console.error(error);
       setUploadProgress(0);
       setProcessingProgress(0);
+      const serverMsg = error?.response?.data?.error || error?.response?.data?.detail || error?.message || "Unknown error";
       toast.error("Process failed", {
-        description: "Please try again.",
+        description: serverMsg,
       });
     } finally {
       setBusy(false);
