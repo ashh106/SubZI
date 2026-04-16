@@ -7,7 +7,10 @@ import uploadRoutes from "./routes/uploadRoutes";
 
 const app = express();
 
-app.use(cors());
+app.use(cors({
+  origin: config.corsOrigin === "*" ? "*" : config.corsOrigin.split(",").map(s => s.trim()),
+  credentials: true,
+}));
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
