@@ -32,6 +32,7 @@ You must run Redis (for the task queue) and MongoDB (for data storage) via Docke
 docker run -d --name redis-subzi -p 6379:6379 redis:alpine
 docker run -d --name mongo-subzi -p 27017:27017 mongo
 ```
+The backend uses BullMQ with the local Redis service when `REDIS_HOST=127.0.0.1` and `REDIS_PORT=6379` are set. To run without Redis, leave `REDIS_HOST` and `REDIS_URL` unset; the backend then uses its in-process queue.
 
 ### 4. Setup the Backend Engine
 The backend orchestrates FFmpeg and the AI Whisper python pipeline.

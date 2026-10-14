@@ -1,0 +1,33 @@
+services:
+  - type: web
+    name: subzi-backend
+    runtime: node
+    rootDir: vid-sub-engine/backend
+    buildCommand: npm install && npm run build
+    startCommand: node dist/app.js
+    healthCheckPath: /health
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: PORT
+        value: "5000"
+      - key: MONGO_URI
+        sync: false   # Set in Render dashboard
+      - key: REDIS_URL
+        sync: false   # Set in Render dashboard (Upstash URL)
+      - key: REDIS_TLS
+        value: "true"
+      - key: GEMINI_API_KEY
+        sync: false   # Set in Render dashboard
+      - key: CORS_ORIGIN
+        value: "https://sub-zi.vercel.app"
+      - key: WHISPER_MODEL
+        value: "base"
+      - key: MAX_FILE_SIZE_MB
+        value: "50"
+      - key: DEMUCS_ENABLED
+        value: "false"
+      - key: WHISPERX_ENABLED
+        value: "false"
+      - key: UPLOADS_DIR
+        value: "/tmp/subzi-uploads"

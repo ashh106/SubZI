@@ -30,6 +30,9 @@ export const config = {
   // Gemini API (fast cloud transcription — replaces local Whisper)
   geminiApiKey: process.env.GEMINI_API_KEY || "",
 
+  // Groq Whisper (optional free-tier hosted STT)
+  groqApiKey: process.env.GROQ_API_KEY || "",
+
   // Max file size in bytes (default 500 MB)
   maxFileSizeBytes: Number(process.env.MAX_FILE_SIZE_MB || 500) * 1024 * 1024,
 

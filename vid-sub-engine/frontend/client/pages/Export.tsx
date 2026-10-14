@@ -115,6 +115,27 @@ export default function Export() {
       return;
     }
 
+    // VTT export — build from current timeline state
+    if (selectedFormat === "vtt") {
+      const toVttTs = (v: number) => {
+        const h = Math.floor(v / 3600);
+        const m = Math.floor((v % 3600) / 60);
+        const s = Math.floor(v % 60);
+        const ms = Math.round((v % 1) * 1000);
+        return `${h.toString().padStart(2,"0")}:${m.toString().padStart(2,"0")}:${s.toString().padStart(2,"0")}.${ms.toString().padStart(3,"0")}`;
+      };
+      const vttContent = "WEBVTT\n\n" + subtitles
+        .map((sub, i) => `${i + 1}\n${toVttTs(sub.start)} --> ${toVttTs(sub.end)}\n${sub.text}\n`)
+        .join("\n");
+      const vttBlob = new Blob([vttContent], { type: "text/vtt;charset=utf-8" });
+      if (action === "share") {
+        await handleShare(vttBlob, ".vtt");
+      } else {
+        await downloadBlobWithPicker(vttBlob, `${safeName}.vtt`, "WebVTT Subtitle File", "text/vtt", ".vtt");
+      }
+      return;
+    }
+
     // For MP4, send the custom edited Text/SRT to backend for a fresh burn
     if (selectedFormat === "mp4") {
       setIsBurning(true);
@@ -140,8 +161,8 @@ export default function Export() {
                      }
                      setIsBurning(false);
                  } else if (data.burnStatus === "failed") {
-                     console.error("Burn failed");
-                     alert("Failed to burn video. Please try again.");
+                     console.error("Burn failed:", data.errorMessage);
+                     alert(`Burn failed: ${data.errorMessage || "Unknown error"}. Please try again.`);
                      setIsBurning(false);
                  } else {
                      setTimeout(checkStatus, 3000);

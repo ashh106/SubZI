@@ -24,6 +24,12 @@ const formats = [
     description: "Clean subtitle file for upload workflows.",
     icon: Subtitles,
   },
+  {
+    id: "vtt" as const,
+    label: "VTT",
+    description: "WebVTT for web players and YouTube.",
+    icon: Subtitles,
+  },
 ];
 
 export function ExportActions({
@@ -45,7 +51,7 @@ export function ExportActions({
         </div>
       </div>
 
-      <div className="grid gap-3 md:grid-cols-2">
+      <div className="grid gap-3 md:grid-cols-3">
         {formats.map(({ id, label, description, icon: Icon }) => {
           const active = selectedFormat === id;
           return (
@@ -77,6 +83,8 @@ export function ExportActions({
       <div className="mt-6 rounded-[1.5rem] border border-white/10 bg-slate-950/60 p-4 text-sm leading-6 text-white/55">
         {selectedFormat === "mp4"
           ? "MP4 export burns your edited captions natively into the video via the cloud engine."
+          : selectedFormat === "vtt"
+          ? "WebVTT export downloads a standards-compliant subtitle file for web players and YouTube."
           : "SRT export downloads a ready-to-use subtitle file generated from your edited timeline."}
       </div>
 

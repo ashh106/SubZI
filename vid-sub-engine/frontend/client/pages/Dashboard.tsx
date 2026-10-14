@@ -10,36 +10,40 @@ import { API_URL } from "@shared/api";
 import { SubtitleCanvas } from "@/components/subtitle-canvas";
 import { UploadDropzone } from "@/components/upload-dropzone";
 import { useSubtitleStudio } from "@/hooks/use-subtitle-studio";
-import { dashboardSteps, sampleSubtitles, type SubtitleCue } from "@/lib/studio-data";
+import { dashboardSteps, type SubtitleCue } from "@/lib/studio-data";
 
 import type { UploadResponse } from "@shared/api";
 
 function parseSrt(srtText: string): SubtitleCue[] {
   const blocks = srtText.replace(/\r\n/g, '\n').trim().split(/\n\s*\n/);
-  return blocks.map((block, i) => {
+  return blocks.flatMap((block, i) => {
     const lines = block.split('\n');
-    if (lines.length < 3) return null;
+    if (lines.length < 3) return [];
     const timestamps = lines[1].split(' --> ');
-    if (timestamps.length !== 2) return null;
+    if (timestamps.length !== 2) return [];
     
     const parseTime = (timeStr: string) => {
-      if (!timeStr) return 0;
-      const [time, ms] = timeStr.trim().split(',');
-      const parts = time.split(':');
-      if (parts.length === 3) {
-          const [h, m, s] = parts;
-          return parseInt(h) * 3600 + parseInt(m) * 60 + parseInt(s) + (parseInt(ms) || 0) / 1000;
-      }
-      return 0; // fallback
+      const match = timeStr.trim().match(/^(\d+):(\d{2}):(\d{2}),(\d{3})$/);
+      if (!match) return null;
+
+      const [, hours, minutes, seconds, milliseconds] = match;
+      if (Number(minutes) > 59 || Number(seconds) > 59) return null;
+
+      return Number(hours) * 3600 + Number(minutes) * 60 + Number(seconds) + Number(milliseconds) / 1000;
     };
+
+    const start = parseTime(timestamps[0]);
+    const end = parseTime(timestamps[1]);
+    const text = lines.slice(2).join('\n').trim();
+    if (start === null || end === null || end <= start || !text) return [];
     
     return {
       id: `cue-${i + 1}`,
-      start: parseTime(timestamps[0]),
-      end: parseTime(timestamps[1]),
-      text: lines.slice(2).join('\n').trim()
+      start,
+      end,
+      text,
     };
-  }).filter(Boolean) as SubtitleCue[];
+  });
 }
 
 function sleep(duration: number) {
@@ -52,6 +56,7 @@ export default function Dashboard() {
   const [serverStatus, setServerStatus] = useState<"idle" | "waking" | "ready">("idle");
   const [sourceLanguage, setSourceLanguage] = useState("auto");
   const [targetLanguage, setTargetLanguage] = useState("en");
+  const [localWhisperModel, setLocalWhisperModel] = useState("small");
   // Gemini Flash is the only supported model on cloud deployment
   const whisperModel = "gemini-flash";
   const {
@@ -153,6 +158,7 @@ export default function Dashboard() {
       formData.append("sourceLanguage", sourceLanguage);
       formData.append("targetLanguage", targetLanguage);
       formData.append("whisperModel", whisperModel);
+      formData.append("localWhisperModel", localWhisperModel);
 
       // Step 1: Upload video (90s timeout for large files on free tier)
       const response = await axios.post<any>(`${API_URL}/api/upload`, formData, {
@@ -199,16 +205,22 @@ export default function Dashboard() {
       const srtRes = await axios.get(`${API_URL}/api/upload/${fileId}/subtitles.srt`);
       const parsedSubtitles = parseSrt(srtRes.data);
       
+      if (parsedSubtitles.length === 0) {
+        useSubtitleStudio.setState({
+          status: "idle",
+          subtitles: [],
+          past: [],
+          future: [],
+          selectedSubtitleId: "",
+        });
+        throw new Error("Transcription completed, but the SRT contained no valid subtitle cues.");
+      }
+
       const statusResFinal = await axios.get<any>(`${API_URL}/api/upload/${fileId}/status`);
       const keywords = statusResFinal.data.keywords || [];
 
-      if (parsedSubtitles.length > 0) {
-        completeProcessing(parsedSubtitles, keywords);
-        selectSubtitle(parsedSubtitles[0].id);
-      } else {
-        completeProcessing(sampleSubtitles, keywords);
-        selectSubtitle(sampleSubtitles[0].id);
-      }
+      completeProcessing(parsedSubtitles, keywords);
+      selectSubtitle(parsedSubtitles[0].id);
       toast.success("AI subtitles generated", {
         description: "Your editable timeline is ready.",
       });
@@ -257,7 +269,7 @@ export default function Dashboard() {
             </div>
           </div>
 
-          <div className="glass-panel grid gap-4 rounded-[2rem] p-5 sm:p-6 md:grid-cols-3">
+          <div className="glass-panel grid gap-4 rounded-[2rem] p-5 sm:p-6 md:grid-cols-2 xl:grid-cols-4">
             <div className="space-y-2">
               <label className="text-sm font-medium text-white/70">Source Language</label>
               <Select value={sourceLanguage} onValueChange={setSourceLanguage}>
@@ -297,6 +309,21 @@ export default function Dashboard() {
                 </div>
               </div>
             </div>
+            <div className="space-y-2">
+              <label className="text-sm font-medium text-white/70">Local Whisper Model</label>
+              <Select value={localWhisperModel} onValueChange={setLocalWhisperModel}>
+                <SelectTrigger className="w-full bg-white/5 border-white/10 text-white">
+                  <SelectValue placeholder="Small" />
+                </SelectTrigger>
+                <SelectContent className="bg-slate-900 border-white/10 text-white">
+                  <SelectItem value="tiny">Tiny</SelectItem>
+                  <SelectItem value="base">Base</SelectItem>
+                  <SelectItem value="small">Small (recommended)</SelectItem>
+                  <SelectItem value="medium">Medium</SelectItem>
+                </SelectContent>
+              </Select>
+              <p className="text-[11px] text-white/40">Used when Gemini Flash is unavailable or fails.</p>
+            </div>
           </div>
 
           {!stagedFile && status === "idle" ? (
@@ -305,7 +332,7 @@ export default function Dashboard() {
              <div className="glass-panel text-center rounded-[2rem] p-8 border border-white/10 flex flex-col items-center justify-center">
                 <CheckCircle2 className="h-10 w-10 text-emerald-400 mb-4" />
                 <h3 className="text-xl text-white font-medium mb-2">{stagedFile.name} loaded</h3>
-                <p className="text-white/60 text-sm max-w-md mx-auto mb-6">Your video is staged. Confirm your Source and Target languages above, then click below. Gemini Flash AI will transcribe and translate your audio in the cloud.</p>
+                <p className="text-white/60 text-sm max-w-md mx-auto mb-6">Your video is staged. Confirm your Source and Target languages above, then click below. Gemini Flash runs first, with local Whisper ({localWhisperModel}) as fallback.</p>
                 {stagedFile && stagedFile.size > 50 * 1024 * 1024 && (
                   <p className="text-amber-400 text-xs mb-4">⚠️ File is over 50MB — consider trimming it for faster processing on free tier.</p>
                 )}

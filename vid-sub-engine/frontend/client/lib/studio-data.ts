@@ -3,7 +3,7 @@ export type SubtitlePresetId = "instagram" | "youtube" | "reel";
 export type SubtitleFont = "sans" | "display" | "creative";
 export type AspectRatio = "original" | "16:9" | "9:16" | "1:1";
 export type VideoQuality = "high" | "medium" | "low";
-export type ExportFormat = "mp4" | "srt";
+export type ExportFormat = "mp4" | "srt" | "vtt";
 
 export interface ExportSettings {
   aspectRatio: AspectRatio;

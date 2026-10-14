@@ -4,10 +4,20 @@ const express_1 = require("express");
 const uploadService_1 = require("../services/uploadService");
 const uploadController_1 = require("../controllers/uploadController");
 const router = (0, express_1.Router)();
+function handleMulter(req, res, next) {
+    uploadService_1.upload.single("video")(req, res, (err) => {
+        if (err) {
+            const message = err.code === "LIMIT_FILE_SIZE" ? "File exceeds the configured size limit" : err.message;
+            res.status(400).json({ error: message });
+            return;
+        }
+        next();
+    });
+}
 // ── Upload ────────────────────────────────────────────────────────────────────
 // POST /api/upload
 // Form fields: video (file), sourceLanguage? (default: auto), targetLanguage? (default: en)
-router.post("/", uploadService_1.upload.single("video"), uploadController_1.uploadVideo);
+router.post("/", handleMulter, uploadController_1.uploadVideo);
 // ── Job status ────────────────────────────────────────────────────────────────
 // GET /api/upload/:fileId/status
 router.get("/:fileId/status", uploadController_1.getJobStatus);
@@ -28,6 +38,8 @@ router.get("/:fileId/text", uploadController_1.getTranscriptText);
 // GET  /api/upload/:fileId/burned → download burned video
 router.post("/:fileId/burn", uploadController_1.burnSubtitles);
 router.get("/:fileId/burned", uploadController_1.downloadBurned);
+router.post("/:fileId/subtitles", uploadController_1.saveEditedSubtitles);
+router.post("/:fileId/retry", uploadController_1.retryJob);
 // ── Legacy raw file info ──────────────────────────────────────────────────────
 // GET /api/upload/:filename
 router.get("/:filename", uploadController_1.getFileInfo);

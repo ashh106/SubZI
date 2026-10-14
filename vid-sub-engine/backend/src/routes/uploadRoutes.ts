@@ -9,15 +9,28 @@ import {
   serveVTT,
   burnSubtitles,
   downloadBurned,
+  saveEditedSubtitles,
+  retryJob,
   getFileInfo,
 } from "../controllers/uploadController";
 
 const router = Router();
 
+function handleMulter(req: any, res: any, next: any) {
+  upload.single("video")(req, res, (err: any) => {
+    if (err) {
+      const message = err.code === "LIMIT_FILE_SIZE" ? "File exceeds the configured size limit" : err.message;
+      res.status(400).json({ error: message });
+      return;
+    }
+    next();
+  });
+}
+
 // ── Upload ────────────────────────────────────────────────────────────────────
 // POST /api/upload
 // Form fields: video (file), sourceLanguage? (default: auto), targetLanguage? (default: en)
-router.post("/", upload.single("video"), uploadVideo);
+router.post("/", handleMulter, uploadVideo);
 
 // ── Job status ────────────────────────────────────────────────────────────────
 // GET /api/upload/:fileId/status
@@ -43,6 +56,8 @@ router.get("/:fileId/text", getTranscriptText);
 // GET  /api/upload/:fileId/burned → download burned video
 router.post("/:fileId/burn", burnSubtitles);
 router.get("/:fileId/burned", downloadBurned);
+router.post("/:fileId/subtitles", saveEditedSubtitles);
+router.post("/:fileId/retry", retryJob);
 
 // ── Legacy raw file info ──────────────────────────────────────────────────────
 // GET /api/upload/:filename
