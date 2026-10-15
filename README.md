@@ -1,4 +1,4 @@
-# SubZI — AI Video Subtitle Studio
+# SubZI : AI Video Subtitle Studio
 SubZI is a web-based video subtitling tool that turns spoken audio into editable subtitles and exports videos with captions embedded directly into the footage.
 
 I built SubZI to bring the main steps of subtitle creation into one workflow: upload a video, generate subtitles, edit the transcript, review timing, customize the appearance, and export the final result.
