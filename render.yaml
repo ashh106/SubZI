@@ -1,28 +1,23 @@
 services:
   - type: web
     name: subzi-backend
-    runtime: node
+    runtime: docker
     rootDir: vid-sub-engine/backend
-    buildCommand: npm install && npm run build
-    startCommand: node dist/app.js
+    dockerfilePath: ./Dockerfile
     healthCheckPath: /health
     envVars:
       - key: NODE_ENV
         value: production
-      - key: PORT
-        value: "5000"
       - key: MONGO_URI
-        sync: false   # Set in Render dashboard
+        sync: false
       - key: REDIS_URL
-        sync: false   # Set in Render dashboard (Upstash URL)
-      - key: REDIS_TLS
-        value: "true"
+        sync: false
       - key: GEMINI_API_KEY
-        sync: false   # Set in Render dashboard
+        sync: false
       - key: CORS_ORIGIN
-        value: "https://sub-zi.vercel.app"
+        value: https://sub-zi.vercel.app
       - key: WHISPER_MODEL
-        value: "base"
+        value: base
       - key: MAX_FILE_SIZE_MB
         value: "50"
       - key: DEMUCS_ENABLED
@@ -30,4 +25,4 @@ services:
       - key: WHISPERX_ENABLED
         value: "false"
       - key: UPLOADS_DIR
-        value: "/tmp/subzi-uploads"
+        value: /tmp/subzi-uploads
