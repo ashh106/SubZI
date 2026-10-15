@@ -83,17 +83,59 @@ export default function Dashboard() {
   const [backendHealth, setBackendHealth] = useState<"checking" | "online" | "offline">("checking");
 
   // Check backend connectivity on mount
+  // useEffect(() => {
+  //   const check = async () => {
+  //     try {
+  //       await axios.get(`${API_URL}/health`, { timeout: 15000 });
+  //       setBackendHealth("online");
+  //     } catch {
+  //       setBackendHealth("offline");
+  //     }
+  //   };
+  //   check();
+  // }, []);
+  
+  // Check backend connectivity and retry if Render is waking up
   useEffect(() => {
+    let cancelled = false;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    let failures = 0;
+
     const check = async () => {
       try {
-        await axios.get(`${API_URL}/health`, { timeout: 15000 });
-        setBackendHealth("online");
+        const response = await axios.get(`${API_URL}/health`, {
+          timeout: 60000,
+        });
+
+        if (cancelled) return;
+
+        if (response.data?.status === "ok") {
+          failures = 0;
+          setBackendHealth("online");
+          return;
+        }
+
+        throw new Error("Health check failed");
       } catch {
-        setBackendHealth("offline");
+        if (cancelled) return;
+
+        failures += 1;
+
+        // Keep retrying so the status can recover automatically.
+        setBackendHealth(failures >= 3 ? "offline" : "checking");
+
+        timer = setTimeout(check, 10000);
       }
     };
-    check();
+
+    void check();
+
+    return () => {
+      cancelled = true;
+      if (timer) clearTimeout(timer);
+    };
   }, []);
+
 
   const handleReset = () => {
     reset();
@@ -263,7 +305,9 @@ export default function Dashboard() {
                 "bg-white/5 border-white/10 text-white/50"
               }`}>
                 {backendHealth === "online" && <><Wifi className="h-3 w-3" /> Backend connected</>}
-                {backendHealth === "offline" && <><WifiOff className="h-3 w-3" /> Backend offline — check Render env vars</>}
+                
+                {backendHealth === "offline" && <><WifiOff className="h-3 w-3" /> Backend unavailable — retrying connection...</>}
+
                 {backendHealth === "checking" && <><LoaderCircle className="h-3 w-3 animate-spin" /> Connecting to server...</>}
               </div>
             </div>
