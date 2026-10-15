@@ -211,7 +211,7 @@ Useful manual checks include:
 
 ## Author
 
-**Ashutosh Bharti**
+**Aashutosh Bharti**
 
 GitHub: [@ashh106](https://github.com/ashh106)
 
