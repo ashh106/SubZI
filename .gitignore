@@ -8,6 +8,11 @@ uploads/
 .venv/
 __pycache__/
 
+# Local editor artifacts
+/cription pipeline and RAG subtitle review
+/
+/vid-sub-engine/backend/src/controllers/tempCodeRunnerFile.ts
+
 # See https://help.github.com/articles/ignoring-files/ for more about ignoring files.
 
 # dependencies
